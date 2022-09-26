@@ -1,66 +1,76 @@
-
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import './App.css';
-
-const renderBoard = (board) => {
-  return board && board.map((rows, i)=>{
-    return <div className='row'>
-      {rows.map((col, j)=>{
-        const body = board[i][j] === 1 ? <div style={{width: '100%', height: '100%', backgroundColor: 'yellow'}}></div> : board[i][j] === 2 ? <div style={{width: '100%', height: '100%', backgroundColor: 'green'}}></div> : <div>{i},{j}</div>
-        return <div className='col'>{body}</div>
-      })}
-    </div>
-  })
-}
+import JoinComponent from './JoinComponent';
+import Board from './Board';
 
 function App() {
   const [board, setBoard] = useState({});
-  const [name, setName] = useState('');
+  const [gameId, setGameId] = useState(null)
   const [currentPlayer, setCurrentPlayer] = useState(null);
-  const getBoard = async() => {
-    const result = await axios.get('http://localhost:4001/getBoardStatus');
-    setBoard(result.data);
+  const getBoard = async(currentGameId) => {
+    try{
+      const result = await axios.get(`http://localhost:4001/getBoardStatus?gameId=${currentGameId}`);
+      setBoard(result.data);
+    } catch(err){
+      console.log('error')
+    }
   }
 
   useEffect(()=>{
-    setInterval(()=>{
-      getBoard();
+    const interval = setInterval(()=>{
+      if(gameId){
+        getBoard(gameId)
+      }
     }, 2000)
-  }, [])
+    return () => clearInterval(interval)
+  }, [gameId])
 
-  const handleClick = async(e, index) => {
-    if(!getTurn().interact || !board.playersReady){
+  const handleClick = async(column, gameId) => {
+    if(currentPlayer != board.currentPlayer || !board.playersReady){
       return
     }
-    await axios.post('http://localhost:4001/play', {index, player: currentPlayer});
+    await axios.post('http://localhost:4001/play', {column, gameId});
   }
 
-  const handleJoinGame = async (e) => {
-    const result = await axios.post('http://localhost:4001/join', {playerName: name});
-    setCurrentPlayer(result.data.player)
+  const handleLeaveGame = async() => {
+    await axios.post('http://localhost:4001/leaveGame', {gameId, currentPlayer});
+    setBoard({});
+    setGameId(null);
+    setCurrentPlayer(null);
+  }
+
+  const handleCreateGame = async (username) => {
+    const result = await axios.post('http://localhost:4001/create', {username});
+    setCurrentPlayer(1)
+    setGameId(result.data.gameId)
+  }
+
+  const handleJoinGame = async (username, gameId) => {
+    await axios.post('http://localhost:4001/join', {username, gameId});
+    setCurrentPlayer(2)
+    setGameId(gameId)
   }
   const getTurn = () => {
-    if((board.turn || {}).value === currentPlayer.value){
+    if(board.currentPlayer == currentPlayer){
       return {message: "It's Your turn", interact: true}
     } else {
-      return {message: `${(board.turn || {}).name}'s turn. Please wait for his move.`, interact: false}
+      return {message: `Opponent turn ! Please wait for his move.`, interact: false}
     }
   }
+
+  const handleRestartGame = async() => {
+    if(board.playerLeft){
+      setCurrentPlayer(null)
+      setGameId(null);
+    }
+    await axios.post('http://localhost:4001/restart', {gameId});
+  }
+
   return (
-    <div className='container'>
-      {currentPlayer && <div className='board'>
-        {!board.playersReady && <h2>Waiting for players to join.</h2> }
-        {board.playersReady && <h3>{getTurn().message}</h3>}
-        <div className='row'>
-          {Array(9).fill(0).map((a, i)=> <div className='col' style={{backgroundColor: 'pink', cursor: 'pointer'}} onClick={(e)=>handleClick(e, i)}> 🢃 </div>)}
-        </div>
-        {board && renderBoard(board.board)}
-      </div>}
-      {!currentPlayer && <div>
-        <input type="text" value={name} onChange={(e)=>setName(e.target.value)} placeholder='Enter your name'></input>
-        <button onClick={handleJoinGame}>Join game</button>
-      </div>}
+    <div id='container'>
+      {currentPlayer && <Board leaveGame={handleLeaveGame} currentPlayer={currentPlayer} board={board} handleRestartGame={handleRestartGame}  handleClick={handleClick} getTurn={getTurn} />}
+      {!currentPlayer && <JoinComponent createGame={handleCreateGame} joinGame={handleJoinGame} />}
     </div>
   );
 }
